@@ -182,8 +182,8 @@ func (m *Manager) Request(resIndx int, unitsRequested int) {
 
 		//    insert (p, k) into res.waitlist
 		res.waitList = append(res.waitList, &ProcessWaitingTuple{
-			proc:         pIndx,
-			unitsWaiting: unitsRequested,
+			proc:           pIndx,
+			unitsRequested: unitsRequested,
 		})
 		m.scheduler()
 	}
@@ -260,7 +260,7 @@ func (m *Manager) release(process *Process, resourceIndex int) {
 	resource.state += resourceOwnership.unitsHeld
 	process.resources[resourceIndex] = nil
 
-	for index, waiter := range resource.waitList {
+	for i, waiter := range resource.waitList {
 		if resource.state >= waiter.unitsRequested {
 
 			process := m.pcb[waiter.proc]
@@ -275,7 +275,7 @@ func (m *Manager) release(process *Process, resourceIndex int) {
 			process.state = READY
 
 			// remove (j, k) from r.waitlist
-			resource.waitList[index] = nil
+			resource.waitList = append(resource.waitList[:i], resource.waitList[i+1:]...)
 
 			// insert j into RL
 			m.rl[process.priority].PushBack(waiter.proc)
