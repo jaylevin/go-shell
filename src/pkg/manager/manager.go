@@ -2,6 +2,7 @@ package manager
 
 import (
 	"container/list"
+	"errors"
 	"fmt"
 
 	"github.com/apex/log"
@@ -154,10 +155,11 @@ func (m *Manager) removeProcessFromRL(process *Process) error {
 		return fmt.Errorf("Could not find process in RL: %v", *process)
 	}
 	m.rl[process.priority].Remove(p)
+
 	return nil
 }
 
-func (m *Manager) request(resIndx int, unitsRequested int) {
+func (m *Manager) Request(resIndx int, unitsRequested int) {
 	pIndx := m.getRunningProcessIndex()
 	p := m.pcb[pIndx]
 	res := m.rcb[resIndx]
@@ -167,7 +169,7 @@ func (m *Manager) request(resIndx int, unitsRequested int) {
 
 		// insert (res, unitsRequested) into p.resources
 		p.resources = append(p.resources, &ResourceOwnedTuple{
-			res:       resIndx,
+			resource:  resIndx,
 			unitsHeld: unitsRequested,
 		})
 	} else {
@@ -183,43 +185,61 @@ func (m *Manager) request(resIndx int, unitsRequested int) {
 			proc:         pIndx,
 			unitsWaiting: unitsRequested,
 		})
-		scheduler()
+		m.scheduler()
 	}
 }
 
-func (m Manager) Init() {
-
-	//All PCB entries are initialized to free except PCB[0].
-	//PCB[0] is initialized to be a running process with no parent, no children, and no resources.
-	//All RCB entries are initialized to free.
-	//RL contains process 0
-	//•	Erase all previous contents of the data structures PCB, RCB, RL
-	//•	Create a single running process at PCB[0] with priority 0
-	//•	Enter the process into the RL at the lowest-priority level 0
-
-	m.pcb = [MAX_PROCESS]*Process{
+//All PCB entries are initialized to free except PCB[0].
+//PCB[0] is initialized to be a running process with no parent, no children, and no resources.
+//All RCB entries are initialized to free.
+//RL contains process 0
+//•	Erase all previous contents of the data structures PCB, RCB, RL
+//•	Create a single running process at PCB[0] with priority 0
+//•	Enter the process into the RL at the lowest-priority level 0
+func (m *Manager) Init() {
+	m.pcb = []*Process{
 		{
 			parent:    -1,
 			resources: []*ResourceOwnedTuple{},
-			children:  &list.List{},
+			children:  list.New(),
 			priority:  0,
+			state:     RUNNING,
 		},
 	}
 
-	m.rcb = [MAX_RESOURCES]*Resource{
+	m.rcb = []*Resource{
 		{state: 1},
 		{state: 1},
 		{state: 2},
 		{state: 3},
 	}
 
-	m.rl = [RL_LEVELS]*list.List{list.New()}
+	m.rl = [RL_LEVELS]*list.List{list.New(), list.New(), list.New()}
 	m.rl[0].PushFront(0)
 }
 
-func scheduler() {}
+func (m *Manager) GetReadyList() [RL_LEVELS]*list.List {
+	return m.rl
+}
 
-func release(res *Resource) {
+//The task of the scheduler function is to perform the context switch from the currently running process i
+// to the new process j. The scheduler must be called whenever process i blocks on a resource and is removed
+// from the RL, and whenever the timeout function moves the process to the end of the RL.'
+//Starting with the highest priority level, 2, the scheduler finds the first non-empty list.
+// The head of the list is the highest priority ready process j.
+// public void scheduler(){
+//     // find highest priority ready process j
+//     //display: “process i running”
+// }
+func (m *Manager) scheduler() {
+	for _, list := range m.rl {
+		if list.Front() != nil {
+			fmt.Println("Scheduler found the first non empty ready list: " + list.Front().Value.(string))
+		}
+	}
+}
+
+func (m *Manager) release(process *Process, resourceIndex int) {
 	// // remove (r, k) from i.resources
 	// res.state += r.state + k
 	// while (r.waitlist != empty && r.state > 0)
@@ -231,11 +251,87 @@ func release(res *Resource) {
 	// 	  remove (j, k) from r.waitlist
 	// 	  insert j into RL
 	//    else break
-	scheduler()
+
+	// Remove (r, k) from process.resources
+	resourceOwnership := process.resources[resourceIndex]
+	resource := m.rcb[resourceIndex]
+
+	// Resource.state += r.state + k
+	resource.state += resourceOwnership.unitsHeld
+	process.resources[resourceIndex] = nil
+
+	for index, waiter := range resource.waitList {
+		if resource.state >= waiter.unitsRequested {
+
+			process := m.pcb[waiter.proc]
+
+			// Insert (r, k) into j.resources
+			process.resources = append(process.resources, &ResourceOwnedTuple{
+				resource:  resourceIndex,
+				unitsHeld: waiter.unitsRequested,
+			})
+
+			// j.state = ready
+			process.state = READY
+
+			// remove (j, k) from r.waitlist
+			resource.waitList[index] = nil
+
+			// insert j into RL
+			m.rl[process.priority].PushBack(waiter.proc)
+
+			// Subtract units available from resource
+			resource.state -= waiter.unitsRequested
+		}
+
+	}
+
+	m.scheduler()
+}
+
+// //The currently running process, i, can create a new child process, j, by invoking the create function:
+// public void create(int priority){
+//     //allocate new PCB[j]
+//     //state = ready
+//     //insert j into children of i
+//     //parent = i
+//     //children = NULL
+//     //resources = NULL
+//     // plvel = priority
+//     //insert j into RL
+//     //display: “process j created”
+// }
+func (m *Manager) Create(priority int) error {
+	if priority < 0 || priority > 2 {
+		return errors.New("Priority level must be in the range of [0, 2].")
+	}
+
+	i := m.getRunningProcessIndex()
+	processI := m.pcb[i]
+
+	// Insert j into children of process i
+	j := len(m.pcb)
+	processI.children.PushBack(j)
+
+	// Allocate new PCB[j]
+	m.pcb = append(m.pcb, &Process{
+		priority:  priority,
+		parent:    i,
+		state:     READY,
+		children:  list.New(),
+		resources: []*ResourceOwnedTuple{},
+	})
+
+	// Insert j into RL
+	m.rl[priority].PushBack(j)
+
+	fmt.Println("Process j created")
+	return nil
 }
 
 func (m *Manager) getRunningProcessIndex() int {
 	for _, priorityLevel := range m.rl {
+		fmt.Println("plevel: ", priorityLevel)
 		elem := priorityLevel.Front()
 		if elem != nil {
 			return elem.Value.(int)
@@ -243,4 +339,65 @@ func (m *Manager) getRunningProcessIndex() int {
 	}
 
 	return -1
+}
+
+//The currently running process, i, can destroy one of its children, j, including all of j’s descendants,
+// by invoking the destroy function. The reason for destroying the entire subtree staring with process j is
+// to avoid the creation of orphan processes, that is, processes without a parent. The process i can also
+// destroy itself and all of its descendants by invoking destroy(i).
+// public void destroy() {
+// for all k in children of j destroy(k)
+//remove j from parent's list
+//remove j from RL or waiting list
+//release all resources of j
+//free PCB of j
+//display: “n processes destroyed”
+// }
+func (m *Manager) Destroy(index int) (int, error) {
+	if index > len(m.pcb)-1 {
+		return 0, fmt.Errorf("PCB entry for process %v does not exist.", index)
+	}
+
+	numDeleted := 1
+	j := m.pcb[index]
+
+	for child := j.children.Front(); child != nil; child = child.Next() {
+		childIndex := child.Value.(int)
+
+		n, err := m.Destroy(childIndex)
+		if err != nil {
+			return 0, err
+		}
+		numDeleted += n
+
+		if j.parent >= 0 {
+			//remove j from parent's list
+			parent := m.pcb[j.parent]
+			for c := parent.children.Front(); c != nil; child = c.Next() {
+				if c.Value.(int) == index {
+					fmt.Printf("Removing %v from parent's children", index)
+					parent.children.Remove(c)
+				}
+			}
+		}
+	}
+
+	//remove j from RL or waiting list
+	for _, level := range m.rl {
+		for p := level.Front(); p != nil; p = p.Next() {
+			i := p.Value.(int)
+			if index == i {
+				level.Remove(p)
+			}
+		}
+	}
+
+	for _, resource := range j.resources {
+
+	}
+
+	// free PCB of j
+	m.pcb[index] = nil
+
+	return numDeleted, nil
 }

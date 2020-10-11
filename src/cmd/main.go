@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"go-shell/src/pkg/manager"
+	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+
+	"github.com/jaylevin/go-shell/src/pkg/manager"
 )
 
 var mgr = &manager.Manager{}
@@ -51,7 +54,35 @@ func execInput(input string) error {
 
 	case "in":
 		mgr.Init()
-		os.Exit(0)
+		return nil
+
+	case "cr":
+		if len(args) < 2 {
+			log.Print("A priority level must be specified, either 0, 1, or 2.")
+		}
+		priority, err := strconv.Atoi(args[1])
+		if err != nil {
+			log.Fatalf("Encountered error while parsing string to integer: %s", err.Error())
+		}
+		if err := mgr.Create(priority); err != nil {
+			log.Print(err.Error())
+		}
+		return nil
+
+	case "dr":
+		if len(args) < 2 {
+			log.Print("A process index number must be specified.")
+		}
+		index, err := strconv.Atoi(args[1])
+		if err != nil {
+			log.Fatalf("Encountered error while parsing string to integer: %s", err.Error())
+		}
+		numDeleted, err := mgr.Destroy(index)
+		if err != nil {
+			log.Print(err.Error())
+		}
+		log.Printf("%v processes destroyed", numDeleted)
+		return nil
 
 	case "exit":
 		os.Exit(0)

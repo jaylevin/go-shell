@@ -2,7 +2,11 @@ package manager
 
 import "container/list"
 
-const BLOCKED = 0
+const (
+	READY   = 0
+	RUNNING = 1
+	BLOCKED = 2
+)
 
 type Resource struct {
 	state int // number of available units
@@ -36,18 +40,18 @@ const RL_LEVELS = 3
 const MAX_RESOURCES = 4
 
 type Manager struct {
-	rcb [MAX_RESOURCES]*Resource
-	pcb [MAX_PROCESS]*Process
+	rcb []*Resource
+	pcb []*Process
 	rl  [RL_LEVELS]*list.List
 }
 
 // Tuples
 type ProcessWaitingTuple struct {
-	proc         int // the process that is waiting
-	unitsWaiting int // number of units the process is waiting on
+	proc           int // the process that is waiting
+	unitsRequested int // number of units the process is waiting on
 }
 
 type ResourceOwnedTuple struct {
-	res       int // index of resource that is mapped to RCB list
+	resource  int // index of resource that is mapped to RCB list
 	unitsHeld int // number of units occupied
 }
